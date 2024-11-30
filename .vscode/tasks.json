@@ -1,0 +1,28 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build",
+            "type": "shell",
+            "command": "msbuild",
+            "args": [
+                "/property:GenerateFullPaths=true",
+                "/t:build",
+                "/consoleloggerparameters:NoSummary",
+                "/p:Configuration=Debug",
+                "/p:Platform=x86",
+                "/p:IncludePath=${workspaceFolder}\\include;${env.INCLUDE}",
+                "/p:LibraryPath=${workspaceFolder}\\lib;${env.LIB}",
+                "/p:AdditionalOptions=\"/I${workspaceFolder}\\include /L${workspaceFolder}\\lib op20pt32.lib /DELAYLOAD:op20pt32.dll\""
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "silent"
+            },
+            "problemMatcher": "$msCompile"
+        }
+    ]
+}
