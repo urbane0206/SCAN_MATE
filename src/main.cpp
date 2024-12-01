@@ -3,7 +3,7 @@
 #include <cstring>
 #include <sstream>
 #include <windows.h>
-#include "../include/J2534.h" // Inclure la bibliothèque J2534
+#include "../include/J2534.h"
 
 unsigned long deviceID;
 unsigned long channelID;
@@ -25,7 +25,14 @@ std::string to_string_alternative(const T& value) {
     return oss.str();
 }
 
-// Fonction pour envoyer un message CAN (PassThruWriteMsgs) et lire la réponse
+// Fonction pour afficher la dernière erreur
+void logLastError(J2534& j2534) {
+    char errorDescription[256] = {0};
+    j2534.PassThruGetLastError(errorDescription);
+    std::cerr << "Dernière erreur : " << errorDescription << std::endl;
+}
+
+// Fonction pour envoyer un message CAN et lire la réponse
 std::string sendPassThruMsg(J2534& j2534, const std::vector<unsigned char>& frame) {
     PASSTHRU_MSG request;
     memset(&request, 0, sizeof(PASSTHRU_MSG));
@@ -37,6 +44,7 @@ std::string sendPassThruMsg(J2534& j2534, const std::vector<unsigned char>& fram
     unsigned long numMsgs = 1;
     long status = j2534.PassThruWriteMsgs(channelID, &request, &numMsgs, 1000);
     if (status != STATUS_NOERROR) {
+        logLastError(j2534);
         return "Erreur lors de l'envoi du message (Code : " + to_string_alternative(status) + ")";
     }
 
@@ -44,6 +52,7 @@ std::string sendPassThruMsg(J2534& j2534, const std::vector<unsigned char>& fram
     unsigned long numResponses = 10;
     status = j2534.PassThruReadMsgs(channelID, response, &numResponses, 2000);
     if (status != STATUS_NOERROR || numResponses == 0) {
+        logLastError(j2534);
         return "Aucune réponse reçue (Code : " + to_string_alternative(status) + ")";
     }
 
@@ -61,6 +70,8 @@ int main() {
     // Initialiser la bibliothèque J2534
     if (!j2534.init()) {
         std::cerr << "Erreur : Échec de l'initialisation de la bibliothèque J2534." << std::endl;
+        std::cout << "\nAppuyez sur une touche pour quitter...";
+        std::cin.get(); 
         return 1;
     }
 
@@ -68,7 +79,8 @@ int main() {
     if (j2534.PassThruOpen(nullptr, &deviceID) != STATUS_NOERROR) {
         std::cerr << "Erreur : Impossible d'ouvrir l'interface J2534." << std::endl;
         std::cout << "\nAppuyez sur une touche pour quitter...";
-        std::cin.get();
+        std::cin.get(); 
+        logLastError(j2534);
         return 1;
     }
 
@@ -76,7 +88,8 @@ int main() {
     if (j2534.PassThruConnect(deviceID, ISO15765, ISO15765_FRAME_PAD, 500000, &channelID) != STATUS_NOERROR) {
         std::cerr << "Erreur : Connexion au protocole CAN échouée." << std::endl;
         std::cout << "\nAppuyez sur une touche pour quitter...";
-        std::cin.get();
+        std::cin.get(); 
+        logLastError(j2534);
         j2534.PassThruClose(deviceID);
         return 1;
     }
@@ -90,11 +103,17 @@ int main() {
     std::cout << "Réponse CAN : " << response << std::endl;
 
     // Nettoyer et fermer les connexions
-    j2534.PassThruDisconnect(channelID);
-    j2534.PassThruClose(deviceID);
+    if (j2534.PassThruDisconnect(channelID) != STATUS_NOERROR) {
+        std::cerr << "Erreur : Impossible de déconnecter le canal." << std::endl;
+        logLastError(j2534);
+    }
+    if (j2534.PassThruClose(deviceID) != STATUS_NOERROR) {
+        std::cerr << "Erreur : Impossible de fermer l'interface J2534." << std::endl;
+        logLastError(j2534);
+    }
 
     std::cout << "Connexion fermée. Fin du programme." << std::endl;
     std::cout << "\nAppuyez sur une touche pour quitter...";
-    std::cin.get(); // Remplacement de _getch() pour plus de compatibilité
-    return 1;
+    std::cin.get(); 
+    return 0;
 }

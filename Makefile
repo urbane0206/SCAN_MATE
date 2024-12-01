@@ -1,6 +1,6 @@
 CXX = g++
-CXXFLAGS := -std=c++17 -Wall -Wextra -g -Iinclude
-LFLAGS := -Llib -lop20pt32
+CXXFLAGS := -std=c++17 -Wall -Wextra -g -Iinclude -m32
+LFLAGS := -Llib -lop20pt32 -m32
 
 OUTPUT := output
 SRC := src
