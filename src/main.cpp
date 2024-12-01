@@ -1,91 +1,100 @@
 #include <iostream>
+#include <vector>
+#include <cstring>
+#include <sstream>
 #include <windows.h>
-#include <conio.h>
-#include "../include/J2534.h" // Assurez-vous que le chemin est correct
+#include "../include/J2534.h" // Inclure la bibliothèque J2534
 
-// Définition des RxStatus flags
-#define TX_MSG_TYPE      0x00000001
-#define START_OF_MESSAGE 0x00000002
+unsigned long deviceID;
+unsigned long channelID;
+
+// Fonction pour convertir un tableau de bytes en chaîne hexadécimale
+std::string bytesToHex(const std::vector<unsigned char>& data) {
+    std::ostringstream hexStream;
+    for (unsigned char byte : data) {
+        hexStream << std::uppercase << std::hex << (int)byte << " ";
+    }
+    return hexStream.str();
+}
+
+// Fonction pour convertir un entier en chaîne (alternative à std::to_string)
+template <typename T>
+std::string to_string_alternative(const T& value) {
+    std::ostringstream oss;
+    oss << value;
+    return oss.str();
+}
+
+// Fonction pour envoyer un message CAN (PassThruWriteMsgs) et lire la réponse
+std::string sendPassThruMsg(J2534& j2534, const std::vector<unsigned char>& frame) {
+    PASSTHRU_MSG request;
+    memset(&request, 0, sizeof(PASSTHRU_MSG));
+    request.ProtocolID = ISO15765;
+    request.TxFlags = ISO15765_FRAME_PAD; // Remplissage automatique des trames
+    request.DataSize = frame.size();
+    memcpy(request.Data, frame.data(), frame.size());
+
+    unsigned long numMsgs = 1;
+    long status = j2534.PassThruWriteMsgs(channelID, &request, &numMsgs, 1000);
+    if (status != STATUS_NOERROR) {
+        return "Erreur lors de l'envoi du message (Code : " + to_string_alternative(status) + ")";
+    }
+
+    PASSTHRU_MSG response[10];
+    unsigned long numResponses = 10;
+    status = j2534.PassThruReadMsgs(channelID, response, &numResponses, 2000);
+    if (status != STATUS_NOERROR || numResponses == 0) {
+        return "Aucune réponse reçue (Code : " + to_string_alternative(status) + ")";
+    }
+
+    std::vector<unsigned char> responseData;
+    for (unsigned long i = 0; i < numResponses; ++i) {
+        responseData.insert(responseData.end(), response[i].Data, response[i].Data + response[i].DataSize);
+    }
+
+    return bytesToHex(responseData);
+}
 
 int main() {
     J2534 j2534;
-    unsigned long deviceId;
-    unsigned long channelId;
 
-    // Initialisation
+    // Initialiser la bibliothèque J2534
     if (!j2534.init()) {
-        std::cout << "Erreur : J2534 init échoué" << std::endl;
-        std::cout << "\nAppuyez sur une touche pour quitter...";
-        _getch();
+        std::cerr << "Erreur : Échec de l'initialisation de la bibliothèque J2534." << std::endl;
         return 1;
     }
 
     // Ouvrir l'interface J2534
-    if (j2534.PassThruOpen(nullptr, &deviceId)) {
-        std::cout << "Erreur : Impossible d'ouvrir l'interface" << std::endl;
+    if (j2534.PassThruOpen(nullptr, &deviceID) != STATUS_NOERROR) {
+        std::cerr << "Erreur : Impossible d'ouvrir l'interface J2534." << std::endl;
         std::cout << "\nAppuyez sur une touche pour quitter...";
-        _getch();
+        std::cin.get();
         return 1;
     }
 
-    // Connexion au protocole ISO15765 (500 kbps)
-    if (j2534.PassThruConnect(deviceId, ISO15765, ISO15765_FRAME_PAD, 500000, &channelId)) {
-        std::cout << "Erreur : Connexion échouée" << std::endl;
-        j2534.PassThruClose(deviceId);
+    // Connecter au protocole CAN
+    if (j2534.PassThruConnect(deviceID, ISO15765, ISO15765_FRAME_PAD, 500000, &channelID) != STATUS_NOERROR) {
+        std::cerr << "Erreur : Connexion au protocole CAN échouée." << std::endl;
         std::cout << "\nAppuyez sur une touche pour quitter...";
-        _getch();
+        std::cin.get();
+        j2534.PassThruClose(deviceID);
         return 1;
     }
 
-    std::cout << "Lecture des DTCs (Mode 03) - Appuyez sur une touche pour quitter." << std::endl;
+    std::cout << "Connexion CAN établie. Lecture des codes défauts..." << std::endl;
 
-    while (!_kbhit()) { // Boucle tant qu'aucune touche n'est appuyée
-        // Préparation du message Mode 03
-        PASSTHRU_MSG msg;
-        memset(&msg, 0, sizeof(PASSTHRU_MSG));
-        msg.ProtocolID = ISO15765;
-        msg.TxFlags = ISO15765_FRAME_PAD;
-        msg.Data[0] = 0x01; // Longueur du message
-        msg.Data[1] = 0x03; // Mode 03 - Lire les DTC
-        msg.Data[2] = 0x00;
-        msg.Data[3] = 0x00;
-        msg.Data[4] = 0x00;
-        msg.Data[5] = 0x00;
-        msg.Data[6] = 0x00;
-        msg.Data[7] = 0x00;
-        msg.DataSize = 8;
+    // Message Mode 03 (Lire les DTCs)
+    std::vector<unsigned char> mode03 = { 0x01, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+    std::string response = sendPassThruMsg(j2534, mode03);
 
-        unsigned long numMsg = 1;
-        if (j2534.PassThruWriteMsgs(channelId, &msg, &numMsg, 1000) != STATUS_NOERROR) {
-            std::cerr << "Erreur : Échec de l'envoi de la requête." << std::endl;
-        }
+    std::cout << "Réponse CAN : " << response << std::endl;
 
-        // Lire la réponse
-        Sleep(100); // Attente pour laisser le temps à l'ECU de répondre
+    // Nettoyer et fermer les connexions
+    j2534.PassThruDisconnect(channelID);
+    j2534.PassThruClose(deviceID);
 
-        PASSTHRU_MSG rxMsg;
-        memset(&rxMsg, 0, sizeof(PASSTHRU_MSG));
-        numMsg = 1;
-
-        if (j2534.PassThruReadMsgs(channelId, &rxMsg, &numMsg, 1000) == STATUS_NOERROR && numMsg > 0) {
-            // Filtrer les messages de réponse (pas TX ou START_OF_MESSAGE)
-            if (!(rxMsg.RxStatus & TX_MSG_TYPE) && !(rxMsg.RxStatus & START_OF_MESSAGE)) {
-                std::cout << "Réponse : ";
-                for (unsigned int i = 0; i < rxMsg.DataSize; i++) {
-                    printf("%02X ", rxMsg.Data[i]);
-                }
-                std::cout << std::endl;
-            }
-        } else {
-            std::cerr << "Erreur : Aucune réponse reçue." << std::endl;
-        }
-
-        Sleep(1000); // Pause de 1 seconde entre les requêtes
-    }
-
-    // Nettoyage
-    j2534.PassThruDisconnect(channelId);
-    j2534.PassThruClose(deviceId);
-
-    return 0;
+    std::cout << "Connexion fermée. Fin du programme." << std::endl;
+    std::cout << "\nAppuyez sur une touche pour quitter...";
+    std::cin.get(); // Remplacement de _getch() pour plus de compatibilité
+    return 1;
 }
