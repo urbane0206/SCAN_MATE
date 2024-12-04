@@ -13,7 +13,6 @@ This project provides a tool for interacting with OBD-II compatible vehicles via
 - **User-Friendly**: Offers interactive prompts for better user experience.
 
 ## Prerequisites
-- Python 3.6 or later.
 - A Tactrix OpenPort device.
 - J2534 DLL installed and accessible on your system.
 - Vehicle with OBD-II compatibility.
